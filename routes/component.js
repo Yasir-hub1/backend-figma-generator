@@ -17,5 +17,8 @@ router.delete('/:id', elementController.deleteElement);
 
 // Exportar a Angular
 router.get('/export/:projectId', elementController.exportToAngular);
+// router.post('/projects/:projectId/export/flutter', elementController.exportToFlutter);
+router.post('/export/flutter/:projectId', elementController.exportToFlutter);
+
 
 module.exports = router;

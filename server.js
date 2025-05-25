@@ -10,6 +10,7 @@ const dotenv = require('dotenv');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/project');
 const componentRoutes = require('./routes/component');
+const aiRoutes = require('./routes/ai');
 
 // Configuración
 dotenv.config();
@@ -37,6 +38,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/components', componentRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Conexión a la base de datos
 mongoose.connect('mongodb+srv://sol:oQ4ryE6rkoCSkaS3@figma.qmqcr5m.mongodb.net/?retryWrites=true&w=majority&appName=figma/figma-angular-generator', {

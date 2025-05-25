@@ -11,10 +11,16 @@ const ElementSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
+      // Tipos existentes
       'container', 'text', 'button', 'image', 'input', 'checkbox', 
       'radio', 'select', 'icon', 'textarea', 'navbar', 'link', 
       'menu', 'menuItem', 'card', 'hero', 'footer', 'carousel', 
-      'video', 'avatar', 'alert', 'badge', 'tooltip', 'progress'
+      'video', 'avatar', 'alert', 'badge', 'tooltip', 'progress',
+      // Nuevos tipos para Flutter
+      'elevatedButton', 'outlinedButton', 'textButton', 'row', 'column',
+      'stack', 'expanded', 'appBar', 'floatingActionButton', 'textField',
+      'switch', 'slider', 'bottomNavigationBar', 'tabBar', 'drawer',
+      'divider'
     ]
   },
   name: {
@@ -52,6 +58,10 @@ const ElementSchema = new mongoose.Schema({
     alignItems: { type: String, default: 'flex-start' },
     textAlign: { type: String, default: 'left' },
     customCSS: { type: String, default: '' }
+  },
+  flutterWidget: {
+    type: String,
+    default: null
   },
   parentId: {
     type: mongoose.Schema.Types.ObjectId,

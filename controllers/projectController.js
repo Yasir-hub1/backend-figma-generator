@@ -3,17 +3,18 @@ const Project = require('../models/Project');
 const Element = require('../models/Element');
 const User = require('../models/User');
 
-// Crear un nuevo proyecto
+// Modificar createProject en projectController.js para manejar deviceType
 exports.createProject = async (req, res) => {
   try {
-    const { name, description, canvas } = req.body;
+    const { name, description, canvas, deviceType } = req.body;
     
     const project = new Project({
       name,
       description,
       owner: req.userId,
       collaborators: [req.userId],
-      canvas: canvas || {}
+      canvas: canvas || {},
+      deviceType: deviceType || 'custom'
     });
 
     await project.save();
@@ -27,6 +28,38 @@ exports.createProject = async (req, res) => {
   }
 };
 
+// Modificar updateProject en projectController.js para manejar deviceType
+exports.updateProject = async (req, res) => {
+  try {
+    const { name, description, canvas, deviceType } = req.body;
+    
+    const project = await Project.findById(req.params.id);
+    
+    if (!project) {
+      return res.status(404).json({ message: 'Proyecto no encontrado' });
+    }
+    
+    // Verificar si el usuario es propietario del proyecto
+    if (!project.owner.equals(req.userId)) {
+      return res.status(403).json({ message: 'No tienes permiso para editar este proyecto' });
+    }
+    
+    project.name = name || project.name;
+    project.description = description || project.description;
+    project.canvas = canvas || project.canvas;
+    project.deviceType = deviceType || project.deviceType;
+    project.updatedAt = Date.now();
+    
+    await project.save();
+    
+    res.status(200).json({
+      message: 'Proyecto actualizado con éxito',
+      project
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el proyecto', error: error.message });
+  }
+};
 // Obtener todos los proyectos del usuario
 exports.getProjects = async (req, res) => {
   try {
@@ -65,37 +98,6 @@ exports.getProject = async (req, res) => {
   }
 };
 
-// Actualizar un proyecto
-exports.updateProject = async (req, res) => {
-  try {
-    const { name, description, canvas } = req.body;
-    
-    const project = await Project.findById(req.params.id);
-    
-    if (!project) {
-      return res.status(404).json({ message: 'Proyecto no encontrado' });
-    }
-    
-    // Verificar si el usuario es propietario del proyecto
-    if (!project.owner.equals(req.userId)) {
-      return res.status(403).json({ message: 'No tienes permiso para editar este proyecto' });
-    }
-    
-    project.name = name || project.name;
-    project.description = description || project.description;
-    project.canvas = canvas || project.canvas;
-    project.updatedAt = Date.now();
-    
-    await project.save();
-    
-    res.status(200).json({
-      message: 'Proyecto actualizado con éxito',
-      project
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al actualizar el proyecto', error: error.message });
-  }
-};
 
 // Eliminar un proyecto
 exports.deleteProject = async (req, res) => {

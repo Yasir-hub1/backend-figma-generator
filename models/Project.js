@@ -11,6 +11,11 @@ const ProjectSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  deviceType: {
+    type: String,
+    enum: ['custom', 'iphone12', 'iphone8', 'pixel5', 'samsungs21', 'ipad'],
+    default: 'custom'
+  },
   owner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -23,11 +28,11 @@ const ProjectSchema = new mongoose.Schema({
   canvas: {
     width: {
       type: Number,
-      default: 1440
+      default: 360 // Valor predeterminado para móvil
     },
     height: {
       type: Number,
-      default: 900
+      default: 640 // Valor predeterminado para móvil
     },
     background: {
       type: String,

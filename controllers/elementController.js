@@ -3,9 +3,10 @@ const Element = require('../models/Element');
 const Project = require('../models/Project');
 
 // Crear un nuevo elemento
+// Modificar la función createElement en elementController.js para manejar flutterWidget
 exports.createElement = async (req, res) => {
   try {
-    const { projectId, type, name, content, position, size, styles, parentId } = req.body;
+    const { projectId, type, name, content, position, size, styles, parentId, flutterWidget } = req.body;
     
     // Verificar si el proyecto existe
     const project = await Project.findById(projectId);
@@ -27,7 +28,8 @@ exports.createElement = async (req, res) => {
       position: position || { x: 0, y: 0 },
       size: size || { width: 100, height: 100 },
       styles: styles || {},
-      parentId: parentId || null
+      parentId: parentId || null,
+      flutterWidget: flutterWidget || type // Agregar propiedad de widget de Flutter
     });
     
     await element.save();
@@ -78,10 +80,11 @@ exports.getElements = async (req, res) => {
 };
 
 // Actualizar un elemento
+// Modificar la función updateElement en elementController.js para manejar flutterWidget
 exports.updateElement = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, content, position, size, styles, parentId } = req.body;
+    const { name, content, position, size, styles, parentId, flutterWidget } = req.body;
     
     const element = await Element.findById(id);
     if (!element) {
@@ -120,6 +123,7 @@ exports.updateElement = async (req, res) => {
     element.size = size || element.size;
     element.styles = styles || element.styles;
     element.parentId = parentId || element.parentId;
+    element.flutterWidget = flutterWidget || element.flutterWidget; // Actualizar widget de Flutter
     element.updatedAt = Date.now();
     
     await element.save();
@@ -939,5 +943,736 @@ exports.duplicateElement = async (req, res) => {
   } catch (error) {
     console.error('Error detallado al duplicar elemento:', error);
     res.status(500).json({ message: 'Error al duplicar el elemento', error: error.message });
+  }
+};
+
+
+// backend/controllers/elementController.js
+// Añadir esta función después de exportToAngular
+
+// Exportar diseño a código Flutter/Dart
+exports.exportToFlutter = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    
+    // Verificar si el proyecto existe
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Proyecto no encontrado' });
+    }
+    
+    // Verificar si el usuario tiene acceso al proyecto
+    if (!project.owner.equals(req.userId) && !project.collaborators.some(collab => collab.equals(req.userId))) {
+      return res.status(403).json({ message: 'No tienes permiso para exportar este proyecto' });
+    }
+    
+    // Obtener todos los elementos del proyecto
+    const elements = await Element.find({ projectId }).sort({ createdAt: 1 });
+    
+    // Función recursiva para construir la jerarquía de elementos
+    const buildElementTree = (parentId = null) => {
+      return elements
+        .filter(element => 
+          parentId === null 
+            ? element.parentId === null 
+            : element.parentId && element.parentId.toString() === parentId.toString()
+        )
+        .map(element => ({
+          ...element.toObject(),
+          children: buildElementTree(element._id)
+        }));
+    };
+    
+    const elementTree = buildElementTree();
+    
+    // Generar código Flutter/Dart
+    const generateFlutterCode = (projectName, elements, deviceType) => {
+      // Función para generar IDs únicos
+      const createIdGenerator = () => {
+        const counts = {};
+        const idMappings = {}; 
+        
+        return {
+          generateId: (name) => {
+            if (idMappings[name]) {
+              return idMappings[name];
+            }
+            
+            const baseId = name.toLowerCase()
+              .replace(/[\s-]+/g, '_')
+              .replace(/[^\w_]/g, '')
+              .replace(/\(|\)|\s|copia/g, '');
+            
+            if (!baseId) return 'element'; 
+            
+            if (!counts[baseId]) {
+              counts[baseId] = 1;
+              const newId = baseId;
+              idMappings[name] = newId;
+              return newId;
+            }
+            
+            counts[baseId]++;
+            const newId = `${baseId}${counts[baseId]}`;
+            idMappings[name] = newId;
+            return newId;
+          },
+          getId: (name) => {
+            return idMappings[name] || null;
+          }
+        };
+      };
+      
+      const idGeneratorUtils = createIdGenerator();
+      
+      // Generar código Dart para main.dart
+      const generateDartCode = (elements) => {
+        let imports = `import 'package:flutter/material.dart';\n\n`;
+        
+        let mainFunction = `
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '${projectName}',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+      home: const HomePage(),
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({Key? key}) : super(key: key);
+
+  @override
+  _HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  @override
+  Widget build(BuildContext context) {
+    // Define un tamaño específico basado en el tipo de dispositivo
+    ${generateDeviceSizing(deviceType)}
+    
+    return Scaffold(
+      body: Container(
+        color: Color(${convertHexToColor(project.canvas.background || '#FFFFFF')}),
+        child: Center(
+          child: SizedBox(
+            width: deviceWidth,
+            height: deviceHeight,
+            child: ${generateWidgetTree(elements, 3)},
+          ),
+        ),
+      ),
+    );
+  }
+}`;
+
+        return imports + mainFunction;
+      };
+      
+      // Generar configuración de tamaño de dispositivo
+      const generateDeviceSizing = (deviceType) => {
+        let sizing = '';
+        
+        switch(deviceType) {
+          case 'iphone12':
+            sizing = `double deviceWidth = 390;
+    double deviceHeight = 844;`;
+            break;
+          case 'iphone8':
+            sizing = `double deviceWidth = 375;
+    double deviceHeight = 667;`;
+            break;
+          case 'pixel5':
+            sizing = `double deviceWidth = 393;
+    double deviceHeight = 851;`;
+            break;
+          case 'samsungs21':
+            sizing = `double deviceWidth = 360;
+    double deviceHeight = 800;`;
+            break;
+          case 'ipad':
+            sizing = `double deviceWidth = 768;
+    double deviceHeight = 1024;`;
+            break;
+          default:
+            sizing = `double deviceWidth = ${project.canvas.width.toFixed(1)};
+    double deviceHeight = ${project.canvas.height.toFixed(1)};`;
+        }
+        
+        return sizing;
+      };
+      
+      // Convertir color hexadecimal a formato Flutter
+      const convertHexToColor = (hex) => {
+        if (!hex || hex === 'transparent') return '0xFFFFFFFF';
+        
+        hex = hex.replace('#', '');
+        
+        if (hex.length === 3) {
+          hex = hex.split('').map(c => c + c).join('');
+        }
+        
+        if (hex.length === 6) {
+          hex = 'FF' + hex;
+        }
+        
+        return `0x${hex.toUpperCase()}`;
+      };
+      
+      // Generar árbol de widgets
+      const generateWidgetTree = (elements, indent = 0) => {
+        if (!elements || elements.length === 0) {
+          return 'Container()';
+        }
+        
+        // Si hay un solo elemento, generarlo directamente
+        if (elements.length === 1) {
+          return generateWidget(elements[0], indent);
+        }
+        
+        // Si hay múltiples elementos, envolverlos en un Stack
+        const spaces = ' '.repeat(indent);
+        let result = `Stack(\n${spaces}  children: [\n`;
+        
+        elements.forEach((element, index) => {
+          result += `${spaces}    ${generateWidget(element, indent + 4)},\n`;
+        });
+        
+        result += `${spaces}  ],\n${spaces})`;
+        return result;
+      };
+      
+      // Generar un widget individual
+      const generateWidget = (element, indent = 0) => {
+        const { type, name, content, position, size, styles = {}, children, flutterWidget } = element;
+        const spaces = ' '.repeat(indent);
+        const elementId = idGeneratorUtils.generateId(name);
+        
+        // Determinar el tipo de widget de Flutter a utilizar
+        const widgetType = flutterWidget || type;
+        
+        // Posicionamiento con Positioned si está dentro de un Stack
+        const positioned = `Positioned(
+${spaces}  left: ${position.x.toFixed(1)},
+${spaces}  top: ${position.y.toFixed(1)},
+${spaces}  width: ${size.width.toFixed(1)},
+${spaces}  height: ${size.height.toFixed(1)},
+${spaces}  child: `;
+        
+        // Generar widget según el tipo
+        let widget;
+        
+        switch (widgetType) {
+          case 'container':
+            widget = `Container(
+${spaces}  decoration: BoxDecoration(
+${spaces}    color: Color(${convertHexToColor(styles.backgroundColor || 'transparent')}),
+${spaces}    borderRadius: BorderRadius.circular(${styles.borderRadius || 0}),
+${spaces}    border: ${styles.borderWidth ? `Border.all(
+${spaces}      color: Color(${convertHexToColor(styles.borderColor || '#000000')}),
+${spaces}      width: ${styles.borderWidth},
+${spaces}    )` : 'null'},
+${spaces}  ),
+${spaces}  child: ${children && children.length > 0 ? generateWidgetTree(children, indent + 2) : 'null'},
+${spaces})`;
+            break;
+          
+          case 'text':
+          case 'Text':
+            widget = `Text(
+${spaces}  '${content || 'Text'}',
+${spaces}  style: TextStyle(
+${spaces}    color: Color(${convertHexToColor(styles.color || '#000000')}),
+${spaces}    fontSize: ${styles.fontSize || 14},
+${spaces}    fontFamily: '${styles.fontFamily || 'Roboto'}',
+${spaces}    fontWeight: ${styles.fontWeight ? 'FontWeight.bold' : 'FontWeight.normal'},
+${spaces}  ),
+${spaces}  textAlign: ${getTextAlign(styles.textAlign)},
+${spaces})`;
+            break;
+          
+          case 'button':
+          case 'elevatedButton':
+          case 'ElevatedButton':
+            widget = `ElevatedButton(
+${spaces}  onPressed: () {},
+${spaces}  style: ElevatedButton.styleFrom(
+${spaces}    backgroundColor: Color(${convertHexToColor(styles.backgroundColor || '#2196F3')}),
+${spaces}    foregroundColor: Color(${convertHexToColor(styles.color || '#FFFFFF')}),
+${spaces}    shape: RoundedRectangleBorder(
+${spaces}      borderRadius: BorderRadius.circular(${styles.borderRadius || 4}),
+${spaces}    ),
+${spaces}  ),
+${spaces}  child: Text('${content || 'Button'}'),
+${spaces})`;
+            break;
+          
+          case 'outlinedButton':
+          case 'OutlinedButton':
+            widget = `OutlinedButton(
+${spaces}  onPressed: () {},
+${spaces}  style: OutlinedButton.styleFrom(
+${spaces}    foregroundColor: Color(${convertHexToColor(styles.color || '#2196F3')}),
+${spaces}    side: BorderSide(
+${spaces}      color: Color(${convertHexToColor(styles.borderColor || '#2196F3')}),
+${spaces}      width: ${styles.borderWidth || 1},
+${spaces}    ),
+${spaces}    shape: RoundedRectangleBorder(
+${spaces}      borderRadius: BorderRadius.circular(${styles.borderRadius || 4}),
+${spaces}    ),
+${spaces}  ),
+${spaces}  child: Text('${content || 'Button'}'),
+${spaces})`;
+            break;
+          
+          case 'textButton':
+          case 'TextButton':
+            widget = `TextButton(
+${spaces}  onPressed: () {},
+${spaces}  style: TextButton.styleFrom(
+${spaces}    foregroundColor: Color(${convertHexToColor(styles.color || '#2196F3')}),
+${spaces}  ),
+${spaces}  child: Text('${content || 'Button'}'),
+${spaces})`;
+            break;
+          
+          case 'image':
+          case 'Image':
+            widget = `Container(
+${spaces}  decoration: BoxDecoration(
+${spaces}    color: Color(${convertHexToColor(styles.backgroundColor || '#F5F5F5')}),
+${spaces}    borderRadius: BorderRadius.circular(${styles.borderRadius || 0}),
+${spaces}  ),
+${spaces}  child: Center(
+${spaces}    child: Icon(
+${spaces}      Icons.image,
+${spaces}      size: ${Math.min(size.width, size.height) / 2},
+${spaces}      color: Colors.grey,
+${spaces}    ),
+${spaces}  ),
+${spaces})`;
+            break;
+          
+          case 'textField':
+          case 'TextField':
+          case 'input':
+            widget = `TextField(
+${spaces}  decoration: InputDecoration(
+${spaces}    hintText: '${content || 'Hint text'}',
+${spaces}    fillColor: Color(${convertHexToColor(styles.backgroundColor || 'transparent')}),
+${spaces}    filled: true,
+${spaces}    border: OutlineInputBorder(
+${spaces}      borderRadius: BorderRadius.circular(${styles.borderRadius || 4}),
+${spaces}      borderSide: BorderSide(
+${spaces}        color: Color(${convertHexToColor(styles.borderColor || '#BDBDBD')}),
+${spaces}        width: ${styles.borderWidth || 1},
+${spaces}      ),
+${spaces}    ),
+${spaces}  ),
+${spaces})`;
+            break;
+          
+          case 'row':
+          case 'Row':
+            widget = `Row(
+${spaces}  mainAxisAlignment: MainAxisAlignment.center,
+${spaces}  crossAxisAlignment: CrossAxisAlignment.center,
+${spaces}  children: [
+${spaces}    ${children && children.length > 0 ? children.map(child => generateWidget(child, indent + 4)).join(',\n' + ' '.repeat(indent + 4)) : ''}
+${spaces}  ],
+${spaces})`;
+            break;
+          
+          case 'column':
+          case 'Column':
+            widget = `Column(
+${spaces}  mainAxisAlignment: MainAxisAlignment.center,
+${spaces}  crossAxisAlignment: CrossAxisAlignment.center,
+${spaces}  children: [
+${spaces}    ${children && children.length > 0 ? children.map(child => generateWidget(child, indent + 4)).join(',\n' + ' '.repeat(indent + 4)) : ''}
+${spaces}  ],
+${spaces})`;
+            break;
+          
+          case 'appBar':
+          case 'AppBar':
+            widget = `AppBar(
+${spaces}  title: Text('${content || 'AppBar'}'),
+${spaces}  backgroundColor: Color(${convertHexToColor(styles.backgroundColor || '#2196F3')}),
+${spaces})`;
+            break;
+          
+          case 'floatingActionButton':
+          case 'FloatingActionButton':
+            widget = `FloatingActionButton(
+${spaces}  onPressed: () {},
+${spaces}  backgroundColor: Color(${convertHexToColor(styles.backgroundColor || '#2196F3')}),
+${spaces}  child: Icon(Icons.add),
+${spaces})`;
+            break;
+          
+          case 'divider':
+          case 'Divider':
+            widget = `Divider(
+${spaces}  color: Color(${convertHexToColor(styles.backgroundColor || '#E0E0E0')}),
+${spaces}  thickness: ${size.height},
+${spaces})`;
+            break;
+          
+          case 'card':
+          case 'Card':
+            widget = `Card(
+${spaces}  elevation: ${styles.boxShadow ? 4 : 1},
+${spaces}  color: Color(${convertHexToColor(styles.backgroundColor || '#FFFFFF')}),
+${spaces}  shape: RoundedRectangleBorder(
+${spaces}    borderRadius: BorderRadius.circular(${styles.borderRadius || 8}),
+${spaces}  ),
+${spaces}  child: Padding(
+${spaces}    padding: const EdgeInsets.all(12.0),
+${spaces}    child: ${children && children.length > 0 ? generateWidgetTree(children, indent + 6) : 'Column(\n' + spaces + '      crossAxisAlignment: CrossAxisAlignment.start,\n' + spaces + '      children: [\n' + spaces + '        Text("Card Title", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),\n' + spaces + '        SizedBox(height: 8),\n' + spaces + '        Text("Card content goes here"),\n' + spaces + '      ],\n' + spaces + '    )'},
+${spaces}  ),
+${spaces})`;
+            break;
+          
+          case 'switch':
+          case 'Switch':
+            widget = `Switch(
+${spaces}  value: false,
+${spaces}  onChanged: (value) {},
+${spaces}  activeColor: Color(${convertHexToColor(styles.color || '#2196F3')}),
+${spaces})`;
+            break;
+          
+          case 'slider':
+          case 'Slider':
+            widget = `Slider(
+${spaces}  value: 0.5,
+${spaces}  onChanged: (value) {},
+${spaces}  activeColor: Color(${convertHexToColor(styles.color || '#2196F3')}),
+${spaces})`;
+            break;
+          
+          case 'bottomNavigationBar':
+          case 'BottomNavigationBar':
+            widget = `BottomNavigationBar(
+${spaces}  items: const [
+${spaces}    BottomNavigationBarItem(
+${spaces}      icon: Icon(Icons.home),
+${spaces}      label: 'Home',
+${spaces}    ),
+${spaces}    BottomNavigationBarItem(
+${spaces}      icon: Icon(Icons.search),
+${spaces}      label: 'Search',
+${spaces}    ),
+${spaces}    BottomNavigationBarItem(
+${spaces}      icon: Icon(Icons.person),
+${spaces}      label: 'Profile',
+${spaces}    ),
+${spaces}  ],
+${spaces}  currentIndex: 0,
+${spaces}  selectedItemColor: Color(${convertHexToColor(styles.color || '#2196F3')}),
+${spaces})`;
+            break;
+          
+          case 'tabBar':
+          case 'TabBar':
+            widget = `Container(
+${spaces}  color: Color(${convertHexToColor(styles.backgroundColor || '#2196F3')}),
+${spaces}  child: TabBar(
+${spaces}    tabs: [
+${spaces}      Tab(text: 'Tab 1'),
+${spaces}      Tab(text: 'Tab 2'),
+${spaces}      Tab(text: 'Tab 3'),
+${spaces}    ],
+${spaces}    controller: TabController(length: 3, vsync: this),
+${spaces}  ),
+${spaces})`;
+            break;
+          
+          case 'drawer':
+          case 'Drawer':
+            widget = `Drawer(
+${spaces}  child: ListView(
+${spaces}    padding: EdgeInsets.zero,
+${spaces}    children: [
+${spaces}      DrawerHeader(
+${spaces}        decoration: BoxDecoration(
+${spaces}          color: Color(${convertHexToColor(styles.backgroundColor || '#2196F3')}),
+${spaces}        ),
+${spaces}        child: Text('Drawer Header'),
+${spaces}      ),
+${spaces}      ListTile(
+${spaces}        title: Text('Item 1'),
+${spaces}        onTap: () {},
+${spaces}      ),
+${spaces}      ListTile(
+${spaces}        title: Text('Item 2'),
+${spaces}        onTap: () {},
+${spaces}      ),
+${spaces}      ListTile(
+${spaces}        title: Text('Item 3'),
+${spaces}        onTap: () {},
+${spaces}      ),
+${spaces}    ],
+${spaces}  ),
+${spaces})`;
+            break;
+          
+          default:
+            widget = `Container(
+${spaces}  color: Color(${convertHexToColor(styles.backgroundColor || 'transparent')}),
+${spaces}  child: Center(child: Text('${name || type}')),
+${spaces})`;
+        }
+        
+        // Envolver en Positioned si es necesario
+        return positioned + widget + `\n${spaces})`;
+      };
+      
+      // Helper para obtener el alineamiento de texto en Flutter
+      const getTextAlign = (align) => {
+        switch (align) {
+          case 'center': return 'TextAlign.center';
+          case 'right': return 'TextAlign.right';
+          case 'justify': return 'TextAlign.justify';
+          default: return 'TextAlign.left';
+        }
+      };
+
+
+      // Parte del código exportToFlutter en elementController.js
+// Función para generar el widget de Flutter a partir de los estilos CSS
+const generateFlutterStyle = (styles, type) => {
+  let flutterStyle = [];
+  
+  // Convertir color de fondo
+  if (styles.backgroundColor && styles.backgroundColor !== 'transparent') {
+    flutterStyle.push(`color: Color(${convertHexToColor(styles.backgroundColor)})`);
+  }
+  
+  // Convertir color de texto
+  if (styles.color) {
+    flutterStyle.push(`color: Color(${convertHexToColor(styles.color)})`);
+  }
+  
+  // Convertir borde
+  if (styles.borderWidth && styles.borderWidth > 0) {
+    const borderColor = styles.borderColor || '#000000';
+    flutterStyle.push(`border: Border.all(
+        color: Color(${convertHexToColor(borderColor)}),
+        width: ${styles.borderWidth},
+      )`);
+  }
+  
+  // Convertir border radius
+  if (styles.borderRadius && styles.borderRadius > 0) {
+    flutterStyle.push(`borderRadius: BorderRadius.circular(${styles.borderRadius})`);
+  }
+  
+  // Sombra (box shadow)
+  if (styles.boxShadow && styles.boxShadow !== 'none') {
+    // Si tenemos un valor de boxShadow, añadimos elevación
+    const elevation = 4; // Valor predeterminado, podría calcularse a partir del boxShadow
+    flutterStyle.push(`elevation: ${elevation}`);
+  }
+  
+  // Fuente y tipografía
+  if (styles.fontSize || styles.fontFamily || styles.fontWeight) {
+    let textStyleProps = [];
+    
+    if (styles.fontSize) {
+      textStyleProps.push(`fontSize: ${styles.fontSize}`);
+    }
+    
+    if (styles.fontFamily) {
+      // Convertir fuentes web a fuentes de Flutter
+      const fontFamily = mapWebFontToFlutterFont(styles.fontFamily);
+      textStyleProps.push(`fontFamily: '${fontFamily}'`);
+    }
+    
+    if (styles.fontWeight) {
+      // Convertir fontWeight CSS a FontWeight de Flutter
+      const fontWeight = mapCSSFontWeightToFlutter(styles.fontWeight);
+      textStyleProps.push(`fontWeight: ${fontWeight}`);
+    }
+    
+    if (styles.textAlign) {
+      // Convertir textAlign CSS a TextAlign de Flutter
+      const textAlign = mapCSSTextAlignToFlutter(styles.textAlign);
+      textStyleProps.push(`textAlign: ${textAlign}`);
+    }
+    
+    if (textStyleProps.length > 0) {
+      flutterStyle.push(`style: TextStyle(${textStyleProps.join(', ')})`);
+    }
+  }
+  
+  // Propiedades específicas para tipos de widgets
+  switch (type) {
+    case 'elevatedButton':
+    case 'ElevatedButton':
+      // Estilos específicos para ElevatedButton
+      break;
+    case 'floatingActionButton':
+    case 'FloatingActionButton':
+      // Estilos específicos para FloatingActionButton
+      break;
+    // Más casos para otros tipos de widgets
+  }
+  
+  return flutterStyle.join(', ');
+};
+
+// Funciones auxiliares para mapeo de propiedades
+const mapWebFontToFlutterFont = (fontFamily) => {
+  const fontMap = {
+    'Arial': 'Roboto',
+    'Helvetica': 'Roboto',
+    'Times New Roman': 'Serif',
+    'Courier New': 'Monospace',
+    'Georgia': 'Serif',
+    'Verdana': 'Roboto'
+    // Añadir más mapeos según sea necesario
+  };
+  
+  return fontMap[fontFamily] || 'Roboto';
+};
+
+const mapCSSFontWeightToFlutter = (fontWeight) => {
+  const weightMap = {
+    'normal': 'FontWeight.normal',
+    'bold': 'FontWeight.bold',
+    '100': 'FontWeight.w100',
+    '300': 'FontWeight.w300',
+    '500': 'FontWeight.w500',
+    '700': 'FontWeight.w700',
+    '900': 'FontWeight.w900'
+  };
+  
+  return weightMap[fontWeight] || 'FontWeight.normal';
+};
+
+const mapCSSTextAlignToFlutter = (textAlign) => {
+  const alignMap = {
+    'left': 'TextAlign.left',
+    'center': 'TextAlign.center',
+    'right': 'TextAlign.right',
+    'justify': 'TextAlign.justify'
+  };
+  
+  return alignMap[textAlign] || 'TextAlign.left';
+};
+      
+      // Generar pubspec.yaml
+      const generatePubspec = (projectName) => {
+        return `name: ${projectName.toLowerCase().replace(/\s+/g, '_')}
+description: A new Flutter project created with Flutter Design Tool.
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=2.17.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+`;
+      };
+      
+      // Generar README.md
+      const generateReadme = (projectName) => {
+        return `# ${projectName}
+
+A Flutter application generated from a design created with Flutter Design Tool.
+
+## Getting Started
+
+This project was automatically generated from a design using Flutter Design Tool.
+
+To run this project:
+
+1. Make sure you have Flutter installed on your machine
+2. Run \`flutter pub get\` to install dependencies
+3. Run \`flutter run\` to start the application
+
+## Project Structure
+
+- \`main.dart\` - The main entry point of the application
+- \`pubspec.yaml\` - Project configuration file
+
+## Device Information
+
+This project was designed for a ${project.deviceType || 'custom'} device with dimensions ${project.canvas.width}x${project.canvas.height}.
+
+## Next Steps
+
+You can:
+1. Add state management to make your UI interactive
+2. Implement navigation between screens
+3. Connect to APIs for dynamic data
+4. Add business logic to your application
+
+## Support
+
+For assistance with Flutter, check out:
+- [Flutter documentation](https://flutter.dev/docs)
+- [Flutter tutorials](https://flutter.dev/docs/cookbook)
+`;
+      };
+      
+      // Compilar todo el código
+      const dart = generateDartCode(elements);
+      const pubspec = generatePubspec(projectName);
+      const readme = generateReadme(projectName);
+      
+      return {
+        dart,
+        pubspec,
+        readme
+      };
+    };
+    
+    // Generar el código Flutter utilizando la información del proyecto
+    const flutterCode = generateFlutterCode(
+      project.name, 
+      elementTree,
+      project.deviceType || 'custom'
+    );
+    
+    res.status(200).json({
+      message: 'Código Flutter exportado con éxito',
+      ...flutterCode
+    });
+    
+  } catch (error) {
+    console.error('Error al exportar a Flutter:', error);
+    res.status(500).json({ 
+      message: 'Error al exportar a Flutter', 
+      error: error.message 
+    });
   }
 };
