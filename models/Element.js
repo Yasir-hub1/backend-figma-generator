@@ -1,85 +1,134 @@
-// backend/models/Element.js
+// backend/models/Element.js - MODELO FINAL
 const mongoose = require('mongoose');
 
-const ElementSchema = new mongoose.Schema({
-  projectId: {
+const elementSchema = new mongoose.Schema({
+  // REFERENCIA A LA SCREEN (CRÍTICO)
+  screenId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Project',
-    required: true
+    ref: 'Screen',
+    required: true,
+    index: true // Para consultas rápidas
   },
+  
+  // Tipo de elemento/widget
   type: {
     type: String,
     required: true,
     enum: [
-      // Tipos existentes
-      'container', 'text', 'button', 'image', 'input', 'checkbox', 
-      'radio', 'select', 'icon', 'textarea', 'navbar', 'link', 
-      'menu', 'menuItem', 'card', 'hero', 'footer', 'carousel', 
-      'video', 'avatar', 'alert', 'badge', 'tooltip', 'progress',
-      // Nuevos tipos para Flutter
-      'elevatedButton', 'outlinedButton', 'textButton', 'row', 'column',
-      'stack', 'expanded', 'appBar', 'floatingActionButton', 'textField',
-      'switch', 'slider', 'bottomNavigationBar', 'tabBar', 'drawer',
-      'divider'
+      'text', 'container', 'elevatedButton', 'outlinedButton', 'textButton',
+      'row', 'column', 'stack', 'expanded', 'appBar', 'floatingActionButton',
+      'textField', 'card', 'divider', 'switch', 'checkbox', 'slider',
+      'bottomNavigationBar', 'tabBar', 'drawer', 'image',"icon"
     ]
   },
+  
+  // Nombre del elemento
   name: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
+  
+  // Contenido (texto, imagen URL, etc.)
   content: {
     type: String,
-    default: ''
+    default: '',
+    trim: true
   },
+  
+  // Posición en el canvas
   position: {
-    x: { type: Number, default: 0 },
-    y: { type: Number, default: 0 }
+    x: { 
+      type: Number, 
+      default: 0,
+      min: 0
+    },
+    y: { 
+      type: Number, 
+      default: 0,
+      min: 0
+    }
   },
+  
+  // Tamaño del elemento
   size: {
-    width: { type: Number, default: 100 },
-    height: { type: Number, default: 100 }
+    width: { 
+      type: Number, 
+      default: 100,
+      min: 1
+    },
+    height: { 
+      type: Number, 
+      default: 50,
+      min: 1
+    }
   },
+  
+  // Estilos CSS/Flutter
   styles: {
-    backgroundColor: { type: String, default: 'transparent' },
-    color: { type: String, default: '#000000' },
-    borderWidth: { type: Number, default: 0 },
-    borderColor: { type: String, default: '#000000' },
-    borderRadius: { type: Number, default: 0 },
-    fontFamily: { type: String, default: 'Arial' },
-    fontSize: { type: Number, default: 14 },
-    padding: { type: String, default: '0px' },
-    margin: { type: String, default: '0px' },
-    boxShadow: { type: String, default: 'none' },
-    zIndex: { type: Number, default: 1 },
-    opacity: { type: Number, default: 1 },
-    display: { type: String, default: 'block' },
-    flexDirection: { type: String, default: 'row' },
-    justifyContent: { type: String, default: 'flex-start' },
-    alignItems: { type: String, default: 'flex-start' },
-    textAlign: { type: String, default: 'left' },
-    customCSS: { type: String, default: '' }
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
+  
+  // Widget de Flutter específico
   flutterWidget: {
     type: String,
-    default: null
+    default: function() { return this.type; },
+    trim: true
   },
+  
+  // Propiedades específicas de Flutter
+  flutterProps: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  
+  // Orden en la pantalla (z-index)
+  zIndex: {
+    type: Number,
+    default: 1,
+    min: 0
+  },
+  
+  // Elemento padre (para layouts anidados)
   parentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Element',
     default: null
   },
+  
+  // Elementos hijos
   children: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Element'
-  }],
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
+  }]
+}, {
+  timestamps: true,
+  // Optimización para consultas
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-module.exports = mongoose.model('Element', ElementSchema);
+// Índices para optimizar consultas
+elementSchema.index({ screenId: 1, createdAt: -1 });
+elementSchema.index({ screenId: 1, zIndex: 1 });
+elementSchema.index({ parentId: 1 });
+
+// Virtual para obtener la screen
+elementSchema.virtual('screen', {
+  ref: 'Screen',
+  localField: 'screenId',
+  foreignField: '_id',
+  justOne: true
+});
+
+// Middleware para limpiar referencias huérfanas
+elementSchema.pre('remove', async function() {
+  // Limpiar referencias de hijos
+  await this.model('Element').updateMany(
+    { parentId: this._id },
+    { $unset: { parentId: 1 } }
+  );
+});
+
+module.exports = mongoose.model('Element', elementSchema);
