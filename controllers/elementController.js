@@ -59,7 +59,7 @@ const getElementsByScreen = async (req, res) => {
   try {
     const { screenId } = req.params;
     
-    console.log('Obteniendo elementos para screen:', screenId);
+    // console.log('Obteniendo elementos para screen:', screenId);
     
     if (!screenId) {
       return res.status(400).json({ message: 'Screen ID es requerido' });
@@ -84,7 +84,7 @@ const getElementsByScreen = async (req, res) => {
     // Buscar elementos que pertenezcan a esta screen
     const elements = await Element.find({ screenId: screenId }).sort({ createdAt: -1 });
     
-    console.log(`Encontrados ${elements.length} elementos para screen ${screenId}`);
+    // console.log(`Encontrados ${elements.length} elementos para screen ${screenId}`);
     
     res.status(200).json(elements);
   } catch (error) {

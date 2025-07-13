@@ -43,6 +43,11 @@ app.use('/api/components', componentRoutes);
 app.use('/api/ai', aiRoutes);
 
 // Conexión a la base de datos
+// mongoose.connect('mongodb+srv://kmontalvan330:f7oYWcDFtsimQRVI@cluster0.zhtfrvq.mongodb.net/?retryWrites=true&w=majority&appName=figkaren', {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true
+// })
+
 mongoose.connect('mongodb+srv://kmontalvan330:f7oYWcDFtsimQRVI@cluster0.zhtfrvq.mongodb.net/?retryWrites=true&w=majority&appName=figkaren', {
   useNewUrlParser: true,
   useUnifiedTopology: true
