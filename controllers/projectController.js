@@ -122,11 +122,8 @@ exports.getProject = async (req, res) => {
       return res.status(404).json({ message: 'Proyecto no encontrado' });
     }
     
-    // Verificar permisos
-    const hasAccess = project.owner.equals(req.userId) || 
-                     project.collaborators.some(collab => collab._id.equals(req.userId));
-    
-    if (!hasAccess) {
+    // Verificar permisos usando el método del modelo
+    if (!project.hasAccess(req.userId)) {
       console.log('🚫 Usuario sin permisos:', req.userId, 'para proyecto:', id);
       return res.status(403).json({ message: 'No tienes permiso para ver este proyecto' });
     }
@@ -288,8 +285,8 @@ exports.addCollaborator = async (req, res) => {
       return res.status(400).json({ message: 'El propietario ya tiene acceso completo al proyecto' });
     }
     
-    // Verificar si ya es colaborador
-    if (project.collaborators.some(collab => collab.equals(collaboratorId))) {
+    // Verificar si ya es colaborador usando el método del modelo
+    if (project.hasAccess(collaboratorId)) {
       return res.status(400).json({ message: 'El usuario ya es colaborador de este proyecto' });
     }
     
@@ -338,11 +335,8 @@ exports.getCollaborators = async (req, res) => {
       return res.status(404).json({ message: 'Proyecto no encontrado' });
     }
     
-    // Verificar permisos
-    const hasAccess = project.owner._id.equals(req.userId) || 
-                     project.collaborators.some(collab => collab._id.equals(req.userId));
-    
-    if (!hasAccess) {
+    // Verificar permisos usando el método del modelo
+    if (!project.hasAccess(req.userId)) {
       return res.status(403).json({ message: 'No tienes permiso para ver este proyecto' });
     }
     
@@ -396,17 +390,30 @@ exports.removeCollaborator = async (req, res) => {
     
     // No se puede eliminar al propietario
     if (project.owner.equals(userId)) {
-      return res.status(400).json({ message: 'No puedes eliminar al propietario del proyecto' });
+      return res.status(400).json({ message: 'No se puede remover al propietario del proyecto' });
     }
     
-    // Verificar que el usuario es colaborador
-    if (!project.collaborators.some(collab => collab.equals(userId))) {
+    if (!project.hasAccess(userId)) {
       return res.status(400).json({ message: 'El usuario no es colaborador de este proyecto' });
     }
     
-    project.collaborators = project.collaborators.filter(
-      collab => !collab.equals(userId)
-    );
+    // Remover colaborador (manejar tanto ObjectId como objetos complejos)
+    project.collaborators = project.collaborators.filter(collab => {
+      if (!collab) return false;
+      
+      // Formato antiguo: solo ObjectId
+      if (collab.equals && collab.equals(userId)) {
+        return false;
+      }
+      
+      // Formato nuevo: objeto con userId
+      if (collab.userId) {
+        return !((collab.userId.equals && collab.userId.equals(userId)) ||
+                 collab.userId.toString() === userId.toString());
+      }
+      
+      return true;
+    });
     project.updatedAt = Date.now();
     
     await project.save();
@@ -434,11 +441,8 @@ exports.getActiveUsers = async (req, res) => {
       return res.status(404).json({ message: 'Proyecto no encontrado' });
     }
     
-    // Verificar permisos
-    const hasAccess = project.owner.equals(req.userId) || 
-                     project.collaborators.some(collab => collab.equals(req.userId));
-    
-    if (!hasAccess) {
+    // Verificar permisos usando el método del modelo
+    if (!project.hasAccess(req.userId)) {
       return res.status(403).json({ message: 'No tienes permiso para ver este proyecto' });
     }
     

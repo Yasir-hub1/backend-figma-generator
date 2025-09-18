@@ -23,10 +23,10 @@ const projectSchema = new mongoose.Schema({
     index: true
   },
   
-  collaborators: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
+  collaborators: {
+    type: [mongoose.Schema.Types.Mixed],
+    default: []
+  },
   
   // IMPORTANTE: Canvas configuration
   canvas: {
@@ -79,6 +79,42 @@ const projectSchema = new mongoose.Schema({
       type: Boolean,
       default: true
     }
+  },
+
+  // Configuración de compartir proyecto
+  shareConfig: {
+    token: {
+      type: String,
+      unique: true,
+      sparse: true
+    },
+    permissions: {
+      canEdit: { type: Boolean, default: true },
+      canCreateDiagrams: { type: Boolean, default: true },
+      canDeleteDiagrams: { type: Boolean, default: false },
+      canInviteOthers: { type: Boolean, default: false },
+      canExport: { type: Boolean, default: true }
+    },
+    expirationDate: {
+      type: Date,
+      default: null
+    },
+    isPublic: {
+      type: Boolean,
+      default: false
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
   }
 }, {
   timestamps: true,
@@ -101,14 +137,30 @@ projectSchema.virtual('screenCount', {
 
 // Middleware para validaciones
 projectSchema.pre('save', function(next) {
-  // Asegurar que el owner esté en los colaboradores
-  if (!this.collaborators.includes(this.owner)) {
+  // Asegurar que el owner esté en los colaboradores (solo si no está ya)
+  const ownerInCollaborators = this.collaborators.some(collab => {
+    if (!collab) return false;
+    
+    // Formato antiguo: solo ObjectId
+    if (collab.equals && collab.equals(this.owner)) {
+      return true;
+    }
+    
+    // Formato nuevo: objeto con userId
+    if (collab.userId) {
+      return (collab.userId.equals && collab.userId.equals(this.owner)) ||
+             collab.userId.toString() === this.owner.toString();
+    }
+    
+    return false;
+  });
+
+  if (!ownerInCollaborators) {
     this.collaborators.push(this.owner);
   }
 
-  // Remover duplicados en colaboradores y asegurar que todos sean ObjectId válidos
-  this.collaborators = [...new Set(this.collaborators.map(id => id.toString()))]
-    .map(id => new mongoose.Types.ObjectId(id));
+  // Limpiar colaboradores nulos o indefinidos
+  this.collaborators = this.collaborators.filter(collab => collab != null);
 
   next();
 });
@@ -116,7 +168,28 @@ projectSchema.pre('save', function(next) {
 
 // Método para verificar si un usuario tiene acceso
 projectSchema.methods.hasAccess = function(userId) {
-  return this.owner.equals(userId) || this.collaborators.some(collab => collab.equals(userId));
+  // Verificar si es el propietario
+  if (this.owner.equals(userId)) {
+    return true;
+  }
+  
+  // Verificar si es colaborador
+  return this.collaborators.some(collab => {
+    if (!collab) return false;
+    
+    // Formato antiguo: solo ObjectId
+    if (collab.equals && collab.equals(userId)) {
+      return true;
+    }
+    
+    // Formato nuevo: objeto con userId
+    if (collab.userId) {
+      return (collab.userId.equals && collab.userId.equals(userId)) ||
+             collab.userId.toString() === userId.toString();
+    }
+    
+    return false;
+  });
 };
 
 // Método para verificar si un usuario es owner

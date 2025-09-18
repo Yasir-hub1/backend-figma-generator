@@ -13,6 +13,14 @@ const componentRoutes = require('./routes/component');
 const aiRoutes = require('./routes/ai');
 const screenRoutes = require('./routes/screen');
 
+// Rutas UML
+const diagramRoutes = require('./routes/diagram');
+const umlElementRoutes = require('./routes/umlElement');
+const umlConnectionRoutes = require('./routes/umlConnection');
+
+// Rutas de Compartir
+const shareRoutes = require('./routes/share');
+
 // Configuración
 dotenv.config();
 const app = express();
@@ -24,6 +32,9 @@ const io = socketIo(server, {
     credentials: true
   }
 });
+
+// Hacer la instancia de io disponible globalmente
+global.io = io;
 
 // Middleware
 app.use(cors({
@@ -41,6 +52,14 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/screens', screenRoutes);
 app.use('/api/components', componentRoutes);
 app.use('/api/ai', aiRoutes);
+
+// Rutas de Compartir (antes de las rutas UML)
+app.use('/api/share', shareRoutes);
+
+// Rutas UML
+app.use('/api/diagrams', diagramRoutes);
+app.use('/api/uml-elements', umlElementRoutes);
+app.use('/api/uml-connections', umlConnectionRoutes);
 
 // Conexión a la base de datos
 // mongoose.connect('mongodb+srv://kmontalvan330:f7oYWcDFtsimQRVI@cluster0.zhtfrvq.mongodb.net/?retryWrites=true&w=majority&appName=figkaren', {
@@ -192,6 +211,118 @@ io.on('connection', (socket) => {
       default:
         console.log(`🔄 Actualización desconocida: ${data.type}`);
     }
+  });
+
+  // Manejar actualizaciones UML (diagramas, elementos UML y conexiones)
+  socket.on('update-uml', (data) => {
+    console.log('🎨 Actualización UML recibida:', data.type);
+    console.log("update-uml ", JSON.stringify(data, null, 2));
+
+    // Validar que el usuario esté autenticado y en el proyecto correcto
+    if (!currentUser || currentProjectId !== data.projectId) {
+      console.log('⚠️ Usuario no autorizado para actualizar UML en este proyecto');
+      return;
+    }
+
+    // Transmitir los cambios a todos los usuarios en la sala excepto al emisor
+  // SOLO emitir uml-updated (eliminar todos los eventos específicos)
+  socket.to(data.projectId).emit('uml-updated', {
+    ...data,
+    username: data.username || currentUser.username || currentUser.name || 'Usuario'
+  });
+
+    // Eventos específicos para mejor manejo colaborativo UML
+    // switch (data.type) {
+    //   case 'diagram-added':
+    //     console.log(`📊 Diagrama añadido por ${currentUser.username}: ${data?.diagram?.name}`);
+    //     socket.to(data.projectId).emit('diagram-added-collaborative', {
+    //       diagram: data.diagram,
+    //       projectId: data.projectId,
+    //       addedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'diagram-updated':
+    //     console.log(`📝 Diagrama actualizado por ${currentUser.username}: ${data?.diagram?.name}`);
+    //     socket.to(data.projectId).emit('diagram-updated-collaborative', {
+    //       diagram: data.diagram,
+    //       projectId: data.projectId,
+    //       updatedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'diagram-deleted':
+    //     console.log(`🗑️ Diagrama eliminado por ${currentUser.username}`);
+    //     socket.to(data.projectId).emit('diagram-deleted-collaborative', {
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       deletedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'element-added':
+    //     console.log(`🔷 Elemento UML añadido por ${currentUser.username}: ${data?.element?.name}`);
+    //     socket.to(data.projectId).emit('uml-element-added-collaborative', {
+    //       element: data.element,
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       addedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'element-updated':
+    //     console.log(`✏️ Elemento UML actualizado por ${currentUser.username}: ${data?.element?.name}`);
+    //     socket.to(data.projectId).emit('uml-element-updated-collaborative', {
+    //       element: data.element,
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       updatedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'element-deleted':
+    //     console.log(`🗑️ Elemento UML eliminado por ${currentUser.username}`);
+    //     socket.to(data.projectId).emit('uml-element-deleted-collaborative', {
+    //       elementId: data.elementId,
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       deletedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'connection-added':
+    //     console.log(`🔗 Conexión UML añadida por ${currentUser.username}: ${data?.connection?.type}`);
+    //     socket.to(data.projectId).emit('uml-connection-added-collaborative', {
+    //       connection: data.connection,
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       addedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'connection-updated':
+    //     console.log(`🔄 Conexión UML actualizada por ${currentUser.username}: ${data?.connection?.type}`);
+    //     socket.to(data.projectId).emit('uml-connection-updated-collaborative', {
+    //       connection: data.connection,
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       updatedBy: currentUser
+    //     });
+    //     break;
+
+    //   case 'connection-deleted':
+    //     console.log(`🗑️ Conexión UML eliminada por ${currentUser.username}`);
+    //     socket.to(data.projectId).emit('uml-connection-deleted-collaborative', {
+    //       connectionId: data.connectionId,
+    //       diagramId: data.diagramId,
+    //       projectId: data.projectId,
+    //       deletedBy: currentUser
+    //     });
+    //     break;
+
+    //   default:
+    //     console.log(`🔄 Actualización UML desconocida: ${data.type}`);
+    // }
   });
 
   socket.on('request-sync', (data) => {
@@ -382,7 +513,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Iniciar servidor
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5002;
 server.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`📡 Socket.IO configurado y listo para conexiones`);
